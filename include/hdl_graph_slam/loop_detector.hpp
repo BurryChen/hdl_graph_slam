@@ -85,7 +85,7 @@ private:
     }
 
     std::vector<KeyFrame::Ptr> candidates;
-    candidates.reserve(32);
+    candidates.reserve(32);//预留空间
 
     for(const auto& k : keyframes) {
       // traveled distance between keyframes is too small
@@ -144,7 +144,7 @@ private:
         continue;
       }
 
-      best_score = score;
+      best_score = score;   //取最低匹配误差（得分）
       best_matched = candidate;
       relative_pose = registration->getFinalTransformation();
     }
@@ -158,7 +158,7 @@ private:
       return nullptr;
     }
 
-    std::cout << "loop found!!" << std::endl;
+    std::cout << "loop found!!" << std::endl;//block 表示返回从矩阵的(i, j)开始，每行取p个元素，每列取q个元素
     std::cout << "relpose: " << relative_pose.block<3, 1>(0, 3) << " - " << Eigen::Quaternionf(relative_pose.block<3, 3>(0, 0)).coeffs().transpose() << std::endl;
 
     last_edge_accum_distance = new_keyframe->accum_distance;

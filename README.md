@@ -187,3 +187,26 @@ Kenji Koide, Jun Miura, and Emanuele Menegatti, A Portable 3D LIDAR-based System
 Kenji Koide, Active Intelligent Systems Laboratory, Toyohashi University of Technology <a href="http://www.aisl.cs.tut.ac.jp">[URL]</a> <br>
 koide@aisl.cs.tut.ac.jp
 
+## ----------------------------------------Burry  git clone  2018.10.6
+## 1. CMakeList.txt
+line 12: find_package(ndt_omp REQUIRED PATHS "/home/whu/tools/ndt_omp/devel_install/share/ndt_omp")
+## 2.g20 version problem
+ https://github.com/koide3/hdl_graph_slam/issues/4
+ Hi,we had tested with serverl optimization params and use your g2o branch ,it cound not help . 
+ But we found out the problem was caused by g2o or it's dependences . 
+ An good news is that the g2o Debian packages from ros can works well.
+ We had tried on 3 computers with the same problem (start optimizing... then crashed ),it fixed the problem. 
+ Here is the setup:
+ 1. sudo apt-get install ros-kinetic-libg2o 
+ 2. sudo cp -r /opt/ros/kinetic/lib/libg2o_* /usr/local/lib 
+ 3. sudo cp -r /opt/ros/kinetic/include/g2o /usr/local/include 
+ 4. rebuild project( must remove the folder 'hdl_graph_slam' under catkin_ws/build beford catkin_make ). 
+ Hope it can help you!
+## save_map problem
+After rviz, then save_map with two lines.
+rosservice call /hdl_graph_slam/save_map "resolution: 0.05 
+destination: '/map.pcd'"
+
+## -----------------------------------------2018.10.16
+OMP,OpenMP
+An Application Program Interface (API) that may be used to explicitly direct multi-threaded, shared memory parallelism.

@@ -101,7 +101,7 @@ private:
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
 
-    Eigen::Matrix4f pose = matching(cloud_msg->header.stamp, cloud);
+    Eigen::Matrix4f pose = matching(cloud_msg->header.stamp, cloud);//base系在odom系下的变换（odom=第一帧keyframe的base）
     publish_odometry(cloud_msg->header.stamp, cloud_msg->header.frame_id, pose);
 
     // In offline estimation, point clouds until the published time will be supplied
@@ -152,7 +152,7 @@ private:
     registration->setInputSource(filtered);
 
     pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());
-    registration->align(*aligned, prev_trans);
+    registration->align(*aligned, prev_trans);//初值
 
     if(!registration->hasConverged()) {
       NODELET_INFO_STREAM("scan matching has not converged!!");
@@ -160,11 +160,11 @@ private:
       return keyframe_pose * prev_trans;
     }
 
-    Eigen::Matrix4f trans = registration->getFinalTransformation();
-    Eigen::Matrix4f odom = keyframe_pose * trans;
+    Eigen::Matrix4f trans = registration->getFinalTransformation();//相邻scan转换
+    Eigen::Matrix4f odom = keyframe_pose * trans;//前一帧的pose*相邻scan转换
 
     if(transform_thresholding) {
-      Eigen::Matrix4f delta = prev_trans.inverse() * trans;
+      Eigen::Matrix4f delta = prev_trans.inverse() * trans;//rej的模
       double dx = delta.block<3, 1>(0, 3).norm();
       double da = std::acos(Eigen::Quaternionf(delta.block<3, 3>(0, 0)).w());
 

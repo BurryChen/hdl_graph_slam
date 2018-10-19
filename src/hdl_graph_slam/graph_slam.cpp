@@ -131,9 +131,9 @@ g2o::EdgeSE3PriorXY* GraphSLAM::add_se3_prior_xy_edge(g2o::VertexSE3* v_se3, con
 
 g2o::EdgeSE3PriorXYZ* GraphSLAM::add_se3_prior_xyz_edge(g2o::VertexSE3* v_se3, const Eigen::Vector3d& xyz, const Eigen::MatrixXd& information_matrix) {
   g2o::EdgeSE3PriorXYZ* edge(new g2o::EdgeSE3PriorXYZ());
-  edge->setMeasurement(xyz);
-  edge->setInformation(information_matrix);
-  edge->vertices()[0] = v_se3;
+  edge->setMeasurement(xyz);  //观测值
+  edge->setInformation(information_matrix); //信息矩阵，协方差矩阵之逆
+  edge->vertices()[0] = v_se3;  //设置连接的顶点
   graph->addEdge(edge);
 
   return edge;
@@ -151,9 +151,9 @@ void GraphSLAM::optimize() {
   std::cout << "optimizing... " << std::flush;
 
   graph->initializeOptimization();
-  graph->setVerbose(false);
+  graph->setVerbose(false);//关闭调试输出
 
-  double chi2 = graph->chi2();
+  double chi2 = graph->chi2();// chi2 就是 error*\Omega*error
 
   auto t1 = ros::Time::now();
   int iterations = graph->optimize(1024);

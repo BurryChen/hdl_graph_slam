@@ -89,26 +89,28 @@ public:
     last_gps_edge_stamp = ros::Time(0);
 
     // subscribers
+    // /odom+/filtered_points->keyframe_queue, gps, floor 为闭环为准备
     odom_sub.reset(new message_filters::Subscriber<nav_msgs::Odometry>(nh, "/odom", 32));
-    cloud_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh, "/filtered_points", 32));
-    sync.reset(new message_filters::TimeSynchronizer<nav_msgs::Odometry, sensor_msgs::PointCloud2>(*odom_sub, *cloud_sub, 32));
-    sync->registerCallback(boost::bind(&HdlGraphSlamNodelet::cloud_callback, this, _1, _2));
+    cloud_sub.reset(new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh, "/filtered_points", 32)); //消息过滤器
+    sync.reset(new message_filters::TimeSynchronizer<nav_msgs::Odometry, sensor_msgs::PointCloud2>(*odom_sub, *cloud_sub, 32)); //时间同步器
+    sync->registerCallback(boost::bind(&HdlGraphSlamNodelet::cloud_callback, this, _1, _2)); //同步回调，建立关键帧队列
     floor_sub = nh.subscribe("/floor_detection/floor_coeffs", 32, &HdlGraphSlamNodelet::floor_coeffs_callback, this);
 
     if(private_nh.param<bool>("enable_gps", true)) {
       gps_sub = nh.subscribe("/gps/geopoint", 32, &HdlGraphSlamNodelet::gps_callback, this);
-      nmea_sub = nh.subscribe("/gpsimu_driver/nmea_sentence", 32, &HdlGraphSlamNodelet::nmea_callback, this);
+      nmea_sub = nh.subscribe("/gpsimu_driver/nmea_sentence", 32, &HdlGraphSlamNodelet::nmea_callback, this);// gps信息原型nmea
     }
 
     // publishers
-    markers_pub = nh.advertise<visualization_msgs::MarkerArray>("/hdl_graph_slam/markers", 16);
-    odom2map_pub = nh.advertise<geometry_msgs::TransformStamped>("/hdl_graph_slam/odom2pub", 16);
-    map_points_pub = mt_nh.advertise<sensor_msgs::PointCloud2>("/hdl_graph_slam/map_points", 1);
+    markers_pub = nh.advertise<visualization_msgs::MarkerArray>("/hdl_graph_slam/markers", 16); //轨迹
+    odom2map_pub = nh.advertise<geometry_msgs::TransformStamped>("/hdl_graph_slam/odom2pub", 16); //世界坐标系pose
+    map_points_pub = mt_nh.advertise<sensor_msgs::PointCloud2>("/hdl_graph_slam/map_points", 1); //结果点云
     read_until_pub = nh.advertise<std_msgs::Header>("/hdl_graph_slam/read_until", 32);
 
-    dump_service_server = nh.advertiseService("/hdl_graph_slam/dump", &HdlGraphSlamNodelet::dump_service, this);
-    save_map_service_server = nh.advertiseService("/hdl_graph_slam/save_map", &HdlGraphSlamNodelet::save_map_service, this);
+    dump_service_server = nh.advertiseService("/hdl_graph_slam/dump", &HdlGraphSlamNodelet::dump_service, this); //中间数据输出
+    save_map_service_server = nh.advertiseService("/hdl_graph_slam/save_map", &HdlGraphSlamNodelet::save_map_service, this); //最终点云输出
 
+    // 定时器，估计时间间隔定时闭环优化
     double graph_update_interval = private_nh.param<double>("graph_update_interval", 3.0);
     double map_cloud_update_interval = private_nh.param<double>("map_cloud_update_interval", 10.0);
     optimization_timer = mt_nh.createTimer(ros::Duration(graph_update_interval), &HdlGraphSlamNodelet::optimization_timer_callback, this);
@@ -123,11 +125,12 @@ private:
    */
   void cloud_callback(const nav_msgs::OdometryConstPtr& odom_msg, const sensor_msgs::PointCloud2::ConstPtr& cloud_msg) {
     const ros::Time& stamp = odom_msg->header.stamp;
-    Eigen::Isometry3d odom = odom2isometry(odom_msg);
+    Eigen::Isometry3d odom = odom2isometry(odom_msg);//base系在odom系下的变换（odom=第一帧keyframe的base）
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
 
+    //和pre keyframe 平移旋转量太小，跳过，不选为keyframe
     if(!keyframe_updater->update(odom)) {
       std::lock_guard<std::mutex> lock(keyframe_queue_mutex);
       if(keyframe_queue.empty()) {
@@ -142,11 +145,12 @@ private:
       return;
     }
 
+    //第一关键帧起的累计平移标量
     double accum_d = keyframe_updater->get_accum_distance();
     KeyFrame::Ptr keyframe(new KeyFrame(stamp, odom, accum_d, cloud));
 
     std::lock_guard<std::mutex> lock(keyframe_queue_mutex);
-    keyframe_queue.push_back(keyframe);
+    keyframe_queue.push_back(keyframe);   //关键帧队列
   }
 
   /**
@@ -172,14 +176,14 @@ private:
       new_keyframes.push_back(keyframe);
 
       Eigen::Isometry3d odom = odom2map * keyframe->odom;
-      keyframe->node = graph_slam->add_se3_node(odom);
+      keyframe->node = graph_slam->add_se3_node(odom); //map系下pose
       keyframe_hash[keyframe->stamp] = keyframe;
 
       if(i==0 && keyframes.empty()) {
         continue;
       }
 
-      // add edge between keyframes
+      // add edge between keyframes， 当前和上一个所形成的边，num_processed-1边,双重队列
       const auto& prev_keyframe = i == 0 ? keyframes.back() : keyframe_queue[i - 1];
 
       Eigen::Isometry3d relative_pose = keyframe->odom.inverse() * prev_keyframe->odom;
@@ -366,7 +370,7 @@ private:
     snapshot = keyframes_snapshot;
     keyframes_snapshot_mutex.unlock();
 
-    auto cloud = map_cloud_generator->generate(snapshot, 0.05);
+    auto cloud = map_cloud_generator->generate(snapshot, map_cloud_resolution);
     if(!cloud) {
       return;
     }
@@ -388,6 +392,7 @@ private:
     std::lock_guard<std::mutex> lock(main_thread_mutex);
 
     // add keyframes and floor coeffs in the queues to the pose graph
+    // 边和节点加入，建立位姿图
     if(!flush_keyframe_queue() & !flush_floor_queue() & !flush_gps_queue()) {
       std_msgs::Header read_until;
       read_until.stamp = event.current_real + ros::Duration(30, 0);
@@ -404,23 +409,24 @@ private:
     for(const auto& loop : loops) {
       Eigen::Isometry3d relpose(loop->relative_pose.cast<double>());
       Eigen::MatrixXd information_matrix = inf_calclator->calc_information_matrix(loop->key1->cloud, loop->key2->cloud, relpose);
-      graph_slam->add_se3_edge(loop->key1->node, loop->key2->node, relpose, information_matrix);
+      graph_slam->add_se3_edge(loop->key1->node, loop->key2->node, relpose, information_matrix);//add loop to graph
     }
 
+    //local 关键帧加入到global关键帧中
     std::copy(new_keyframes.begin(), new_keyframes.end(), std::back_inserter(keyframes));
     new_keyframes.clear();
 
     // optimize the pose graph
     graph_slam->optimize();
 
-    // publish tf
+    // publish tf,tf_odom2map
     const auto& keyframe = keyframes.back();
-    Eigen::Isometry3d trans = keyframe->node->estimate() * keyframe->odom.inverse();
+    Eigen::Isometry3d trans = keyframe->node->estimate() * keyframe->odom.inverse();//tf_base2map*tf_base2odom.inverse()=tf_odom2map
     trans_odom2map_mutex.lock();
-    trans_odom2map = trans.matrix().cast<float>();
+    trans_odom2map = trans.matrix().cast<float>();//两种不同类型的Eigen矩阵相加，或者赋值，需要用到cast函数：
     trans_odom2map_mutex.unlock();
 
-    if(map_points_pub.getNumSubscribers()) {
+    if(map_points_pub.getNumSubscribers()) {//如果有结果mapping订阅就发布
       std::vector<KeyFrameSnapshot::Ptr> snapshot(keyframes.size());
       std::transform(keyframes.begin(), keyframes.end(), snapshot.begin(),
         [=](const KeyFrame::Ptr& k) {
@@ -431,12 +437,12 @@ private:
       keyframes_snapshot.swap(snapshot);
     }
 
-    if(odom2map_pub.getNumSubscribers()) {
+    if(odom2map_pub.getNumSubscribers()) { //pub tf_odom2map
       geometry_msgs::TransformStamped ts = matrix2transform(keyframe->stamp, trans.matrix().cast<float>(), map_frame_id, odom_frame_id);
       odom2map_pub.publish(ts);
     }
 
-    if(markers_pub.getNumSubscribers()) {
+    if(markers_pub.getNumSubscribers()) { //pub markers
       auto markers = create_marker_array(event.current_real);
       markers_pub.publish(markers);
     }
@@ -470,7 +476,7 @@ private:
       traj_marker.points[i].y = pos.y();
       traj_marker.points[i].z = pos.z();
 
-      double p = static_cast<double>(i) / keyframes.size();
+      double p = static_cast<double>(i) / keyframes.size();//从起始由红变绿
       traj_marker.colors[i].r = 1.0 - p;
       traj_marker.colors[i].g = p;
       traj_marker.colors[i].b = 0.0;
@@ -659,12 +665,12 @@ private:
   ros::NodeHandle nh;
   ros::NodeHandle mt_nh;
   ros::NodeHandle private_nh;
-  ros::Timer optimization_timer;
+  ros::Timer optimization_timer; //定时器
   ros::WallTimer map_publish_timer;
 
-  std::unique_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub;
+  std::unique_ptr<message_filters::Subscriber<nav_msgs::Odometry>> odom_sub;  //订阅者过滤器
   std::unique_ptr<message_filters::Subscriber<sensor_msgs::PointCloud2>> cloud_sub;
-  std::unique_ptr<message_filters::TimeSynchronizer<nav_msgs::Odometry, sensor_msgs::PointCloud2>> sync;
+  std::unique_ptr<message_filters::TimeSynchronizer<nav_msgs::Odometry, sensor_msgs::PointCloud2>> sync;//时间同步器
 
   ros::Subscriber gps_sub;
   ros::Subscriber nmea_sub;
@@ -675,7 +681,7 @@ private:
   std::string map_frame_id;
   std::string odom_frame_id;
 
-  std::mutex trans_odom2map_mutex;
+  std::mutex trans_odom2map_mutex;  //h互斥锁
   Eigen::Matrix4f trans_odom2map;
   ros::Publisher odom2map_pub;
 
@@ -712,12 +718,12 @@ private:
   std::mutex main_thread_mutex;
 
   int max_keyframes_per_update;
-  std::deque<KeyFrame::Ptr> new_keyframes;
+  std::deque<KeyFrame::Ptr> new_keyframes; //双端队列
 
   std::vector<KeyFrame::Ptr> keyframes;
-  std::unordered_map<ros::Time, KeyFrame::Ptr, RosTimeHash> keyframe_hash;
+  std::unordered_map<ros::Time, KeyFrame::Ptr, RosTimeHash> keyframe_hash;  //无序图
 
-  std::unique_ptr<GraphSLAM> graph_slam;
+  std::unique_ptr<GraphSLAM> graph_slam;   //智能指针
   std::unique_ptr<LoopDetector> loop_detector;
   std::unique_ptr<KeyframeUpdater> keyframe_updater;
   std::unique_ptr<NmeaSentenceParser> nmea_parser;

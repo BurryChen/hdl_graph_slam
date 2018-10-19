@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
 <launch>
   <!-- arguments -->
+  <param name="use_sim_time" value="true" />
+  <arg name="rviz" default="true" />
   <arg name="nodelet_manager" default="velodyne_nodelet_manager" />
   <arg name="enable_floor_detection" default="true" />
   <arg name="enable_gps" default="false" />
@@ -38,7 +40,7 @@
       <!-- ICP, GICP, NDT, GICP_OMP, or NDT_OMP(recommended) -->
       <param name="registration_method" value="NDT_OMP" />
       <param name="ndt_resolution" value="1.0" />
-      <param name="ndt_num_threads" value="0" />
+      <param name="ndt_num_threads" value="8" />
       <param name="ndt_nn_search_method" value="DIRECT7" />
   </node>
 
@@ -69,7 +71,7 @@
     <!-- scan matching params -->
     <param name="registration_method" value="NDT_OMP" />
     <param name="ndt_resolution" value="1.0" />
-    <param name="ndt_num_threads" value="0" />
+    <param name="ndt_num_threads" value="8" />
     <param name="ndt_nn_search_method" value="DIRECT7" />
     <!-- information matrix params -->
     <param name="gps_edge_stddev" value="1000.0" />
@@ -89,4 +91,8 @@
   </node>
 
   <node pkg="hdl_graph_slam" type="map2odom_publisher.py" name="map2odom_publisher" />
+  
+  <group if="$(arg rviz)">
+    <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find hdl_graph_slam)/rviz/hdl_graph_slam2.rviz" />
+  </group>
 </launch>
