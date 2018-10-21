@@ -245,3 +245,5 @@ destination: '/map.pcd'"
 ## -----------------------------------------2018.10.16
 OMP,OpenMP
 An Application Program Interface (API) that may be used to explicitly direct multi-threaded, shared memory parallelism.
+## dump all data to the current directory
+rosservice call /hdl_graph_slam/dump "destination: '/home/whu/data/hdl_graph/kitti_mapping/dump' "

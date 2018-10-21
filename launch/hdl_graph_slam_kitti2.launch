@@ -1,0 +1,142 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- update after merging devel -->
+  <!-- arguments -->
+  <param name="use_sim_time" value="true" />
+  <arg name="rviz" default="true" />
+  <arg name="nodelet_manager" default="velodyne_nodelet_manager" />
+  <arg name="enable_floor_detection" default="true" />
+  <arg name="enable_gps" default="false" />
+  <arg name="enable_imu_acc" default="false" />
+  <arg name="enable_imu_ori" default="false" />
+
+  <!-- transformation between lidar and base_link 
+  //velodyne2base of KITTI
+  transform.setBasis(tf::Matrix3x3(   
+  4.276802385584e-04, -9.999672484946e-01, -8.084491683471e-03,
+  -7.210626507497e-03, 8.081198471645e-03, -9.999413164504e-01, 
+  9.999738645903e-01, 4.859485810390e-04, -7.206933692422e-03));
+  transform.setOrigin(tf::Vector3(-1.198459927713e-02,-5.403984729748e-02,-2.921968648686e-01)); 
+  <node pkg="tf" type="static_transform_publisher" name="lidar2base_publisher" 
+	args="-1.198459927713e-02 -5.403984729748e-02 -2.921968648686e-01 0.499888 -0.503701 0.496055 0.500325 base_link velodyne 10" />
+  -->
+  <node pkg="tf" type="static_transform_publisher" name="lidar2base_publisher" args="0 0 0 0 0 0 base_link velodyne 10" />
+
+  <!-- in case you use velodyne_driver, comment out the following line -->
+  <node pkg="nodelet" type="nodelet" name="$(arg nodelet_manager)" args="manager" output="screen"/>
+
+  <!-- prefiltering_nodelet -->
+  <node pkg="nodelet" type="nodelet" name="prefiltering_nodelet" args="load hdl_graph_slam/PrefilteringNodelet $(arg nodelet_manager)">
+  	<!-- in case base_link_frame is blank, mapping will be performed in the lidar frame -->
+    <param name="base_link_frame" value="base_link" />
+    <!-- distance filter --> <!--距离滤波-->
+    <param name="use_distance_filter" value="true" />
+    <param name="distance_near_thresh" value="0.1" />
+    <param name="distance_far_thresh" value="50.0" />
+    <!-- NONE, VOXELGRID, or APPROX_VOXELGRID -->
+    <!--采取不同下采样的方法,VOXELGRID重心，APPROX_VOXELGRID几何中心 -->
+    <param name="downsample_method" value="VOXELGRID" /> 
+    <param name="downsample_resolution" value="0.2" />
+    <!-- NONE, RADIUS, or STATISTICAL --> <!--外点过滤-->
+    <param name="outlier_removal_method" value="RADIUS" />
+    <param name="statistical_mean_k" value="30" />   <!--统计的方式过滤外点，周围的neighbor数目最小30-->
+    <param name="statistical_stddev" value="1.2" />  <!--统计的方式过滤外点，设置判断是否为离群点的阈值-->
+    <param name="radius_radius" value="0.5" />       <!--以半径为0.5米的方式进行统计-->
+    <param name="radius_min_neighbors" value="5" />  <!--统计的邻居的最小数目为5-->
+  </node>
+
+  <!-- scan_matching_odometry_nodelet -->
+  <node pkg="nodelet" type="nodelet" name="scan_matching_odometry_nodelet" args="load hdl_graph_slam/ScanMatchingOdometryNodelet $(arg nodelet_manager)">
+  	  <param name="odom_frame_id" value="odom" />
+      <param name="keyframe_delta_trans" value="2.5" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小平移-->
+      <param name="keyframe_delta_angle" value="0.2" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小角度-->
+      <param name="keyframe_delta_time" value="5.0" />        <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小时间，三个条件或的关系-->
+      <param name="transform_thresholding" value="false" />
+      <param name="max_acceptable_trans" value="5.0" />    <!--从初值（上一帧的变换，如果上一帧为关键帧则为单位阵）到变换的变化量的最大平移阈值，超出就采用初值-->
+      <param name="max_acceptable_angle" value="5.0" />    <!--从初值到变换的变化量的最大平移阈值，超出就采用初值，二个条件或的关系-->
+      <param name="downsample_method" value="NONE" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE)-->
+      <param name="downsample_resolution" value="0.1" />
+      <!-- ICP, GICP, NDT, GICP_OMP, or NDT_OMP(recommended) -->  <!--连接点搜索速度： DIRECT1>DIRECT7>KDTREE略>NONE,fitness精度：DIRECT1<DIRECT7<KDTREE=NONE.DIRECT-direct neighbor checking-->
+      <param name="registration_method" value="NDT_OMP" />
+      <param name="ndt_resolution" value="2.0" />   <!--比较重要的参数，设置ndt 分辨率-->
+      <param name="ndt_num_threads" value="8" />     <!--比较重要的参数，设置ndt 线程数，可以多线程运行，提高速度 0-->
+      <param name="ndt_nn_search_method" value="DIRECT7" />  <!--比kdtree 快-->
+  </node>
+
+  <!-- floor_detection_nodelet -->
+  <node pkg="nodelet" type="nodelet" name="floor_detection_nodelet" args="load hdl_graph_slam/FloorDetectionNodelet $(arg nodelet_manager)" if="$(arg enable_floor_detection)">
+  	<param name="tilt_deg" value="0.0" />
+    <param name="sensor_height" value="1.0" />
+    <param name="height_clip_range" value="2.0" />
+    <param name="floor_pts_thresh" value="512" />
+    <param name="use_normal_filtering" value="true" />
+    <param name="normal_filter_thresh" value="20.0" />
+  </node>
+
+  <!-- hdl_graph_slam_nodelet -->
+  <node pkg="nodelet" type="nodelet" name="hdl_graph_slam_nodelet" args="load hdl_graph_slam/HdlGraphSlamNodelet $(arg nodelet_manager)">
+    <!-- frame settings -->
+  	<param name="map_frame_id" value="map" />
+  	<param name="odom_frame_id" value="odom" />
+    <!-- optimization params -->
+    <!-- typical solvers: gn_var, gn_fix6_3, gn_var_cholmod, lm_var, lm_fix6_3, lm_var_cholmod, ... -->
+    <param name="g2o_solver_type" value="lm_var_cholmod" />
+    <param name="g2o_solver_num_iterations" value="512" />
+    <!-- keyframe registration params -->
+    <param name="enable_gps" value="$(arg enable_gps)" />
+    <param name="enable_imu_acceleration" value="$(arg enable_imu_acc)" />
+    <param name="enable_imu_orientation" value="$(arg enable_imu_ori)" />
+    <param name="keyframe_delta_trans" value="10.0" />     <!--和pre keyframe 平移量小于该阈值，跳过，不加入keyframe_queue;-->
+    <param name="keyframe_delta_angle" value="3.0" />      <!--和pre keyframe 旋转量小于该阈值，跳过，不加入keyframe_queue;二者同时满足才跳过，1个不满足就加入keyframe_queue--> 
+    <!-- loop closure params -->
+    <param name="distance_thresh" value="10.0" />             <!--小于该阈值范围内两个关键帧为潜在闭环帧，将所有满足条件的都存起来作为candidate，搜索区域-->
+    <param name="accum_distance_thresh" value="100.0" />      <!-- 这里指的是当前帧累计距离（odometry）与临近帧累计距离之差，组成的环长要大于该阈值-->
+    <param name="min_edge_interval" value="30.0" />          <!-- 两个环之间的间隔要大于该阈值-->
+    <param name="fitness_score_thresh" value="2.0" />         <!-- 闭环帧匹配得分，连接点欧式距离error均值，分值越小越优-->
+    <!-- scan matching params -->
+    <param name="registration_method" value="NDT_OMP" />       <!-- 闭环帧匹配方法-->
+    <param name="ndt_resolution" value="2.0" />                 <!-- 闭环帧匹配分辨率-->
+    <param name="ndt_num_threads" value="8" />                   <!-- 闭环帧匹配线程数目 8-->
+    <param name="ndt_nn_search_method" value="DIRECT7" />          <!-- 闭环帧寻找临近点搜索方法-->
+   <!-- edge params -->
+    <!-- GPS -->
+    <param name="gps_edge_robust_kernel" value="NONE" />
+    <param name="gps_edge_robust_kernel_size" value="1.0" />
+    <param name="gps_edge_stddev_xy" value="20.0" />
+    <param name="gps_edge_stddev_z" value="5.0" />
+    <!-- IMU orientation -->
+    <param name="imu_orientation_edge_robust_kernel" value="NONE" />
+    <param name="imu_orientation_edge_stddev" value="1.0" />
+    <!-- IMU acceleration (gravity vector) -->
+    <param name="imu_acceleration_edge_robust_kernel" value="NONE" />
+    <param name="imu_acceleration_edge_stddev" value="1.0" />
+    <!-- ground plane -->
+    <param name="floor_edge_robust_kernel" value="NONE" />
+    <param name="floor_edge_stddev" value="10.0" />
+    <!-- robust kernels: NONE, Cauchy, DCS, Fair, GemanMcClure, Huber, PseudoHuber, Saturated, Tukey, Welsch -->
+    <param name="odometry_edge_robust_kernel" value="Huber" />
+    <param name="odometry_edge_robust_kernel_size" value="1.0" />
+    <param name="loop_closure_edge_robust_kernel" value="Huber" />
+    <param name="loop_closure_edge_robust_kernel_size" value="1.0" />
+    <param name="use_const_inf_matrix" value="false" />
+    <param name="const_stddev_x" value="0.5" />
+    <param name="const_stddev_q" value="0.1" />
+    <param name="var_gain_a" value="20.0" />
+    <param name="min_stddev_x" value="0.1" />
+    <param name="max_stddev_x" value="5.0" />
+    <param name="min_stddev_q" value="0.05" />
+    <param name="max_stddev_q" value="0.2" />
+    <!-- update params -->
+    <param name="graph_update_interval" value="3.0" />          <!--SLAM 后端graph优化的时间间隔-->
+    <param name="max_keyframes_per_update" value="10" />        <!--每次从keyframe_queue 加入到loop的数目n,n个形成一个环约束-->
+    <param name="map_cloud_update_interval" value="10.0" />     <!--mapping更新的时间间隔-->
+    <param name="map_cloud_resolution" value="0.5" />          <!--全局地图的分辨率的分辨率-->
+  </node>
+
+  <node pkg="hdl_graph_slam" type="map2odom_publisher.py" name="map2odom_publisher" />
+  
+  <group if="$(arg rviz)">
+    <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find hdl_graph_slam)/rviz/hdl_graph_slam2.rviz" />
+  </group>
+
+</launch>

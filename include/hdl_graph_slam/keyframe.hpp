@@ -28,7 +28,7 @@ public:
 
 public:
   ros::Time stamp;                                // timestamp
-  Eigen::Isometry3d odom;                         // odometry (estimated by scan_matching_odometry)
+  Eigen::Isometry3d odom;                         // odometry (estimated by scan_matching_odometry) 优化前odom系下的pose
   double accum_distance;                          // accumulated distance from the first node (by scan_matching_odometry)
   pcl::PointCloud<PointT>::ConstPtr cloud;        // point cloud
   boost::optional<Eigen::Vector4d> floor_coeffs;  // detected floor's coefficients
