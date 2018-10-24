@@ -55,6 +55,8 @@
 #include <g2o/edge_se3_priorvec.hpp>
 #include <g2o/edge_se3_priorquat.hpp>
 
+#include <iostream>
+#include <stdio.h> 
 
 namespace hdl_graph_slam {
 
@@ -124,6 +126,25 @@ public:
     double map_cloud_update_interval = private_nh.param<double>("map_cloud_update_interval", 10.0);
     optimization_timer = mt_nh.createWallTimer(ros::WallDuration(graph_update_interval), &HdlGraphSlamNodelet::optimization_timer_callback, this);
     map_publish_timer = mt_nh.createWallTimer(ros::WallDuration(map_cloud_update_interval), &HdlGraphSlamNodelet::map_points_publish_timer_callback, this);
+    
+    //pose file with KITTI calibration tf_cal
+    fp = fopen("/home/whu/data/hdl_graph/KITTI_0X_graph.txt","w");
+    //世界坐标系map,以第一帧velo为基准建立，而kitti ground truth 是以第一帧camera为世界坐标系的velo pose，需要世界系calibration参数
+    Eigen::Matrix4d mat;
+    mat<<      
+     4.276802385584e-04, -9.999672484946e-01, -8.084491683471e-03,-1.198459927713e-02,
+    -7.210626507497e-03,  8.081198471645e-03, -9.999413164504e-01,-5.403984729748e-02, 
+     9.999738645903e-01,  4.859485810390e-04, -7.206933692422e-03,-2.921968648686e-01,
+      0,0,0,1;
+     tf_velo2cam=mat.cast<double>();
+    //初值
+    tf::Matrix3x3 R(1,0,0,0,1,0,0,0,1);
+    //R=tf_velo2cam.getBasis()*R;
+    tf::Vector3 T(0,0,0);
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	   R[0][0],R[0][1],R[0][2],T[0],
+	   R[1][0],R[1][1],R[1][2],T[1],
+	   R[2][0],R[2][1],R[2][2],T[2]);  
   }
 
 private:
@@ -134,7 +155,7 @@ private:
    */
   void cloud_callback(const nav_msgs::OdometryConstPtr& odom_msg, const sensor_msgs::PointCloud2::ConstPtr& cloud_msg) {
     const ros::Time& stamp = odom_msg->header.stamp;
-    Eigen::Isometry3d odom = odom2isometry(odom_msg);//base系在odom系下的变换（odom=第一帧keyframe的base）
+    Eigen::Isometry3d odom = odom2isometry(odom_msg);//base系在odom系下的变换（map=第一帧keyframe的base,odom2map闭环检测修正值，realtime uodate）
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
@@ -142,6 +163,21 @@ private:
       base_frame_id = cloud_msg->header.frame_id;
     }
 
+    //write pose file with KITTI calibration tf_velo2cam
+    //odom 更新频率同点云，trans_odom2map的更新频率较低，同keyframe;
+    //当前点云velo2map=当前点云odom+所在keyframe的闭环检测修正值odom2map
+    Eigen::Isometry3d tf_odom2map(trans_odom2map.cast<double>());
+    Eigen::Isometry3d tf_velo2map = tf_odom2map * odom;//tf_odom2map*tf_base2odom=tf_base2map;base=velo;
+    // pose:the pose of left camera coordinate system in the i'th frame with respect to the first(=0th) frame
+    Eigen::Isometry3d pose=tf_velo2cam*tf_velo2map*tf_velo2cam.inverse();
+    
+    auto data=pose.matrix();
+    //std::cout<<"pose=\n"<<pose.matrix()<<std::endl;
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	    data(0,0),data(0,1),data(0,2),data(0,3),
+	    data(1,0),data(1,1),data(1,2),data(1,3),
+	    data(2,0),data(2,1),data(2,2),data(2,3));
+    
     //和pre keyframe 平移旋转量太小，跳过，不选为keyframe
     if(!keyframe_updater->update(odom)) {
       std::lock_guard<std::mutex> lock(keyframe_queue_mutex);
@@ -948,6 +984,10 @@ private:
   std::unique_ptr<NmeaSentenceParser> nmea_parser;
 
   std::unique_ptr<InformationMatrixCalculator> inf_calclator;
+  
+  //pose file with KITTI calibration tf_cal
+  FILE *fp;
+  Eigen::Isometry3d tf_velo2cam;
 };
 
 }

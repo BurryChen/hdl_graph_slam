@@ -238,7 +238,9 @@ line 12: find_package(ndt_omp REQUIRED PATHS "/home/whu/tools/ndt_omp/devel_inst
  4. rebuild project( must remove the folder 'hdl_graph_slam' under catkin_ws/build beford catkin_make ). 
  Hope it can help you!
 ## save_map problem
-After rviz, then save_map with two lines.
+1)we must subscibe topic "/hdl_graph_slam/map_points" before the service, by rviz or rostopic command.
+rostopic hz/echo/bw /hdl_graph_slam/map_points
+2)After subscibing, then save_map with two lines.
 rosservice call /hdl_graph_slam/save_map "resolution: 0.05 
 destination: '/map.pcd'"
 
