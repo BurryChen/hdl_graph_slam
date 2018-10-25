@@ -895,6 +895,10 @@ private:
       std::ofstream ofs(req.destination + ".utm");
       ofs << (*zero_utm).transpose() << std::endl;
     }
+    // Executing the transformation
+    auto cloud_temp=cloud;
+    // You can either apply transform_1 or transform_2; they are the same
+    pcl::transformPointCloud (*cloud_temp, *cloud, tf_velo2cam.matrix());
     int ret = pcl::io::savePCDFileBinary(req.destination, *cloud);
     res.success = ret == 0;
 
