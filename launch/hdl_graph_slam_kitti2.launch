@@ -43,17 +43,17 @@
   <!-- scan_matching_odometry_nodelet -->
   <node pkg="nodelet" type="nodelet" name="scan_matching_odometry_nodelet" args="load hdl_graph_slam/ScanMatchingOdometryNodelet $(arg nodelet_manager)">
   	  <param name="odom_frame_id" value="odom" />
-      <param name="keyframe_delta_trans" value="2.5" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小平移-->
+      <param name="keyframe_delta_trans" value="2.5" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小平移,与后边的参数有重叠，多层关键帧筛选？-->
       <param name="keyframe_delta_angle" value="0.2" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小角度-->
       <param name="keyframe_delta_time" value="5.0" />        <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小时间，三个条件或的关系-->
       <param name="transform_thresholding" value="false" />
-      <param name="max_acceptable_trans" value="5.0" />    <!--从初值（上一帧的变换，如果上一帧为关键帧则为单位阵）到变换的变化量的最大平移阈值，超出就采用初值-->
-      <param name="max_acceptable_angle" value="5.0" />    <!--从初值到变换的变化量的最大平移阈值，超出就采用初值，二个条件或的关系-->
-      <param name="downsample_method" value="NONE" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE)-->
+      <param name="max_acceptable_trans" value="5.0" />    <!--初值（上一scan相对keyframe的转换）的逆×当前scan相对keyframe的转换=相邻scan的变换,，超出就采用初值-->
+      <param name="max_acceptable_angle" value="5.0" />    <!--相邻scan的变换,，超出就采用初值，二个条件或的关系-->
+      <param name="downsample_method" value="NONE" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE) prefiltering已有downsample，参数重复-->
       <param name="downsample_resolution" value="0.1" />
       <!-- ICP, GICP, NDT, GICP_OMP, or NDT_OMP(recommended) -->  <!--连接点搜索速度： DIRECT1>DIRECT7>KDTREE略>NONE,fitness精度：DIRECT1<DIRECT7<KDTREE=NONE.DIRECT-direct neighbor checking-->
       <param name="registration_method" value="NDT_OMP" />
-      <param name="ndt_resolution" value="2.0" />   <!--比较重要的参数，设置ndt 分辨率-->
+      <param name="ndt_resolution" value="2.0" />   <!--Resolution of NDT grid structure-->
       <param name="ndt_num_threads" value="8" />     <!--比较重要的参数，设置ndt 线程数，可以多线程运行，提高速度 0-->
       <param name="ndt_nn_search_method" value="DIRECT7" />  <!--比kdtree 快-->
   </node>
@@ -113,7 +113,7 @@
     <param name="odometry_edge_robust_kernel_size" value="1.0" />
     <param name="loop_closure_edge_robust_kernel" value="Huber" />
     <param name="loop_closure_edge_robust_kernel_size" value="1.0" />
-    <param name="use_const_inf_matrix" value="false" />
+    <param name="use_const_inf_matrix" value="true" />  <!--true则权重一致，false则建立以fitness为自变量对应RT的标准差为参数的求权函数-->
     <param name="const_stddev_x" value="0.5" />
     <param name="const_stddev_q" value="0.1" />
     <param name="var_gain_a" value="20.0" />
@@ -122,7 +122,7 @@
     <param name="min_stddev_q" value="0.05" />
     <param name="max_stddev_q" value="0.2" />
     <!-- update params -->
-    <param name="graph_update_interval" value="3.0" />          <!--SLAM 后端graph优化的时间间隔-->
+    <param name="graph_update_interval" value="30.0" />          <!--SLAM 后端graph优化的时间间隔 wall time -->
     <param name="max_keyframes_per_update" value="10" />        <!--每次从keyframe_queue 加入到loop的数目n,n个形成一个环约束-->
     <param name="map_cloud_update_interval" value="10.0" />     <!--mapping更新的时间间隔-->
     <param name="map_cloud_resolution" value="0.5" />          <!--全局地图的分辨率的分辨率-->

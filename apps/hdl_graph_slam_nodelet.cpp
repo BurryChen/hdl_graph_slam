@@ -592,6 +592,12 @@ private:
     // optimize the pose graph
     int num_iterations = private_nh.param<int>("g2o_solver_num_iterations", 1024);
     graph_slam->optimize(num_iterations);
+    
+    //BA is for all keyframes, 把误差均分给每一个node,为了保证相对关系会造成绝对pose的偏差。以first keyframe为基准，消除绝对偏差。
+    auto trans_absolute=(keyframes.front()->node->estimate()).inverse();
+    for(auto keyframe:keyframes){ 
+      keyframe->node->setEstimate(trans_absolute*keyframe->node->estimate());
+    }   
 
     // publish tf,tf_odom2map
     const auto& keyframe = keyframes.back();

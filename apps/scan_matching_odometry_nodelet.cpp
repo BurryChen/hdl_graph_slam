@@ -160,11 +160,11 @@ private:
       return keyframe_pose * prev_trans;
     }
 
-    Eigen::Matrix4f trans = registration->getFinalTransformation();//相邻scan转换
+    Eigen::Matrix4f trans = registration->getFinalTransformation();//当前scan相对keyframe的转换
     Eigen::Matrix4f odom = keyframe_pose * trans;//前一帧的pose*相邻scan转换
 
     if(transform_thresholding) {
-      Eigen::Matrix4f delta = prev_trans.inverse() * trans;//rej的模
+      Eigen::Matrix4f delta = prev_trans.inverse() * trans;//上一scan相对keyframe的转换×当前scan相对keyframe的转换=相邻scan的变换
       double dx = delta.block<3, 1>(0, 3).norm();
       double da = std::acos(Eigen::Quaternionf(delta.block<3, 3>(0, 0)).w());
 
@@ -175,7 +175,7 @@ private:
       }
     }
 
-    prev_trans = trans;
+    prev_trans = trans;//下一次align的初值
 
     auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
     keyframe_broadcaster.sendTransform(keyframe_trans);
