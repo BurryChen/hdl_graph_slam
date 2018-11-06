@@ -87,6 +87,31 @@ private:
     }
 
     registration = select_registration_method(pnh);
+    ndt_resolution = pnh.param<double>("ndt_resolution", 0.5);
+    
+    //pose file with KITTI calibration tf_cal
+    fp = fopen("/home/whu/data/hdl_graph/KITTI_0X_odom.txt","w");
+    //世界坐标系map,以第一帧velo为基准建立，而kitti ground truth 是以第一帧camera为世界坐标系的velo pose，需要世界系calibration参数
+    Eigen::Matrix4d mat;
+    mat<<      
+     4.276802385584e-04, -9.999672484946e-01, -8.084491683471e-03,-1.198459927713e-02,
+    -7.210626507497e-03,  8.081198471645e-03, -9.999413164504e-01,-5.403984729748e-02, 
+     9.999738645903e-01,  4.859485810390e-04, -7.206933692422e-03,-2.921968648686e-01,
+      0,0,0,1;
+     tf_velo2cam=mat.cast<double>();
+    //初值
+    tf::Matrix3x3 R(1,0,0,0,1,0,0,0,1);
+    //R=tf_velo2cam.getBasis()*R;
+    tf::Vector3 T(0,0,0);
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	   R[0][0],R[0][1],R[0][2],T[0],
+	   R[1][0],R[1][1],R[1][2],T[1],
+	   R[2][0],R[2][1],R[2][2],T[2]);
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	   R[0][0],R[0][1],R[0][2],T[0],
+	   R[1][0],R[1][1],R[1][2],T[1],
+	   R[2][0],R[2][1],R[2][2],T[2]);    
+    seq=0;
   }
 
   /**
@@ -120,7 +145,8 @@ private:
    * @param cloud  input cloud
    * @return downsampled point cloud
    */
-  pcl::PointCloud<PointT>::ConstPtr downsample(const pcl::PointCloud<PointT>::ConstPtr& cloud) const {
+  pcl::PointCloud<PointT>::ConstPtr 
+  downsample(const pcl::PointCloud<PointT>::ConstPtr& cloud) const {
     if(!downsample_filter) {
       return cloud;
     }
@@ -133,12 +159,12 @@ private:
   }
 
   /**
-   * @brief estimate the relative pose between an input cloud and a keyframe cloud
+   * @brief estimate the relative pose between an input cloud and a first keyframe cloud
    * @param stamp  the timestamp of the input cloud
    * @param cloud  the input cloud
-   * @return the relative pose between the input cloud and the keyframe cloud
+   * @return the relative pose between the input cloud and the first keyframe cloud
    */
-  Eigen::Matrix4f matching(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+  /*Eigen::Matrix4f matching(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
     if(!keyframe) {
       prev_trans.setIdentity();
       keyframe_pose.setIdentity();
@@ -149,10 +175,15 @@ private:
     }
 
     auto filtered = downsample(cloud);
+    //std::cout<<" filtered size:"<<filtered->size()<<std::endl;
     registration->setInputSource(filtered);
 
-    pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());
+    pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());   
+    auto t1 = ros::WallTime::now();
     registration->align(*aligned, prev_trans);//初值
+    auto t2 = ros::WallTime::now();
+    std::cout <<++seq<<" "<< stamp<<"/"<<keyframe_stamp << "-t : " << (t2 - t1).toSec() 
+    << "-fitness: " << registration->getFitnessScore() << std::endl;
 
     if(!registration->hasConverged()) {
       NODELET_INFO_STREAM("scan matching has not converged!!");
@@ -162,12 +193,22 @@ private:
 
     Eigen::Matrix4f trans = registration->getFinalTransformation();//当前scan相对keyframe的转换
     Eigen::Matrix4f odom = keyframe_pose * trans;//前一帧的pose*相邻scan转换
+    
+    //wite odom pose
+    Eigen::Isometry3d tf_velo2odom(odom.cast<double>());
+    Eigen::Isometry3d pose=tf_velo2cam*tf_velo2odom*tf_velo2cam.inverse();   
+    auto data=pose.matrix();
+    //std::cout<<"pose=\n"<<pose.matrix()<<std::endl;
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	    data(0,0),data(0,1),data(0,2),data(0,3),
+	    data(1,0),data(1,1),data(1,2),data(1,3),
+	    data(2,0),data(2,1),data(2,2),data(2,3));  
 
     if(transform_thresholding) {
       Eigen::Matrix4f delta = prev_trans.inverse() * trans;//上一scan相对keyframe的转换×当前scan相对keyframe的转换=相邻scan的变换
       double dx = delta.block<3, 1>(0, 3).norm();
       double da = std::acos(Eigen::Quaternionf(delta.block<3, 3>(0, 0)).w());
-
+      std::cout<<"dx="<<dx<<"da="<<da<<std::endl;
       if(dx > max_acceptable_trans || da > max_acceptable_angle) {
         NODELET_INFO_STREAM("too large transform!!  " << dx << "[m] " << da << "[rad]");
         NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
@@ -193,8 +234,88 @@ private:
     }
 
     return odom;
-  }
+  }*/
 
+    /**
+   * @brief estimate the relative pose between an input cloud and the first keyframe cloud (odometry)
+   * @param stamp  the timestamp of the input cloud
+   * @param cloud  the input cloud
+   * @return the relative pose between the input cloud and the first keyframe cloud (odometry)
+   */
+  Eigen::Matrix4f matching(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+    if(!lastframe) { 
+      lastframe_pose.setIdentity();
+      lastframe= downsample(cloud);
+      registration->setInputTarget(lastframe);
+      prev_trans.setIdentity();
+      last_t = ros::WallTime::now();
+      return Eigen::Matrix4f::Identity();
+    } 
+      
+    auto filtered = downsample(cloud);
+    //std::cout<<" filtered size:"<<filtered->size()<<std::endl;
+    registration->setInputSource(filtered);
+
+    pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());    
+    registration->align(*aligned, prev_trans);//初值
+
+    if(!registration->hasConverged()) {
+      NODELET_INFO_STREAM("scan matching has not converged!!");
+      NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
+      return lastframe_pose * prev_trans;
+    }
+    Eigen::Matrix4f trans = registration->getFinalTransformation();//当前scan相对lastframe的转换
+
+    double dx = trans.block<3, 1>(0, 3).norm();
+    double da = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
+    if(dx > max_acceptable_trans || da > max_acceptable_angle||registration->getFitnessScore()>ndt_resolution) {
+      trans=prev_trans;
+      NODELET_INFO_STREAM("too large transform or gitness!! trans=prev_trans");
+    }
+    
+    Eigen::Matrix4f odom = lastframe_pose * trans;//前一帧的pose*转换
+    
+    //write odom pose file
+    Eigen::Isometry3d tf_velo2odom(odom.cast<double>());
+    Eigen::Isometry3d pose=tf_velo2cam*tf_velo2odom*tf_velo2cam.inverse();   
+    auto data=pose.matrix();
+    //std::cout<<"pose=\n"<<pose.matrix()<<std::endl;
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	    data(0,0),data(0,1),data(0,2),data(0,3),
+	    data(1,0),data(1,1),data(1,2),data(1,3),
+	    data(2,0),data(2,1),data(2,2),data(2,3));  
+      
+    lastframe_pose = odom;
+    //lastframe= filtered;
+    registration->setInputTarget(filtered);
+    prev_trans = trans;//下一次align的初值  
+    seq++;
+
+    // judge and publish keyframe,per 10
+    if(!keyframe)   //initialize
+    {
+      keyframe_stamp = stamp;
+      keyframe_pose.setIdentity();
+      keyframe = filtered;
+    }
+    if(seq%10==0) {      
+      keyframe_stamp = stamp;
+      keyframe_pose=odom;
+      keyframe = filtered; 
+    }
+    auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
+    keyframe_broadcaster.sendTransform(keyframe_trans);
+
+    //screet print 
+    auto t2 = ros::WallTime::now();
+    std::cout <<seq<<" "<< stamp << "--t: " << (t2 - last_t).toSec() 
+    << "--fitness: " << registration->getFitnessScore() 
+    <<"--dx: "<<dx<<"--da: "<<da<<std::endl;
+    last_t=t2;
+    
+    return odom;
+  }
+  
   /**
    * @brief publish odometry
    * @param stamp  timestamp
@@ -253,10 +374,19 @@ private:
   Eigen::Matrix4f keyframe_pose;               // keyframe pose
   ros::Time keyframe_stamp;                    // keyframe time
   pcl::PointCloud<PointT>::ConstPtr keyframe;  // keyframe point cloud
+  pcl::PointCloud<PointT>::ConstPtr lastframe;  // lastframe point cloud
+  Eigen::Matrix4f lastframe_pose;               // lastframe pose
 
   //
   pcl::Filter<PointT>::Ptr downsample_filter;
   pcl::Registration<PointT, PointT>::Ptr registration;
+  
+  //odom pose file with KITTI calibration tf_cal
+  FILE *fp;
+  Eigen::Isometry3d tf_velo2cam;
+  int seq;
+  double ndt_resolution;
+  ros::WallTime last_t;
 };
 
 }
