@@ -26,12 +26,12 @@
     <param name="base_link_frame" value="base_link" />
     <!-- distance filter --> <!--距离滤波-->
     <param name="use_distance_filter" value="true" />
-    <param name="distance_near_thresh" value="0.1" />
-    <param name="distance_far_thresh" value="50.0" />
+    <param name="distance_near_thresh" value="0.5" />
+    <param name="distance_far_thresh" value="100.0" />
     <!-- NONE, VOXELGRID, or APPROX_VOXELGRID -->
     <!--采取不同下采样的方法,VOXELGRID重心，APPROX_VOXELGRID几何中心 -->
     <param name="downsample_method" value="VOXELGRID" /> 
-    <param name="downsample_resolution" value="0.2" />
+    <param name="downsample_resolution" value="0.1" />
     <!-- NONE, RADIUS, or STATISTICAL --> <!--外点过滤-->
     <param name="outlier_removal_method" value="RADIUS" />
     <param name="statistical_mean_k" value="30" />   <!--统计的方式过滤外点，周围的neighbor数目最小30-->
@@ -43,17 +43,17 @@
   <!-- scan_matching_odometry_nodelet -->
   <node pkg="nodelet" type="nodelet" name="scan_matching_odometry_nodelet" args="load hdl_graph_slam/ScanMatchingOdometryNodelet $(arg nodelet_manager)">
   	  <param name="odom_frame_id" value="odom" />
-      <param name="keyframe_delta_trans" value="2.5" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小平移,与后边的参数有重叠，多层关键帧筛选？-->
-      <param name="keyframe_delta_angle" value="0.2" />       <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小角度-->
-      <param name="keyframe_delta_time" value="5.0" />        <!--当前帧选取作为关键帧的条件;相对于上一关键帧的最小时间，三个条件或的关系-->
-      <param name="transform_thresholding" value="false" />
-      <param name="max_acceptable_trans" value="5.0" />    <!--初值（上一scan相对keyframe的转换）的逆×当前scan相对keyframe的转换=相邻scan的变换,，超出就采用初值-->
-      <param name="max_acceptable_angle" value="5.0" />    <!--相邻scan的变换,，超出就采用初值，二个条件或的关系-->
+      <param name="keyframe_delta_trans" value="5.0" />       <!--m-->
+      <param name="keyframe_delta_angle" value="0.17" />      <!--rad-->
+      <param name="keyframe_delta_time" value="1.0" />        <!--s,当前帧选取作为关键帧的条件-->
+      <param name="transform_thresholding" value="true" />
+      <param name="max_acceptable_trans" value="3.0" />      <!--threshold for delta  between current scan and last scan,3m/0.1s=108km/h-->
+      <param name="max_acceptable_angle" value="0.157" />    <!--rad per 0.1s,10s转弯90度-->
       <param name="downsample_method" value="NONE" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE) prefiltering已有downsample，参数重复-->
       <param name="downsample_resolution" value="0.1" />
       <!-- ICP, GICP, NDT, GICP_OMP, or NDT_OMP(recommended) -->  <!--连接点搜索速度： DIRECT1>DIRECT7>KDTREE略>NONE,fitness精度：DIRECT1<DIRECT7<KDTREE=NONE.DIRECT-direct neighbor checking-->
       <param name="registration_method" value="NDT_OMP" />
-      <param name="ndt_resolution" value="2.0" />   <!--Resolution of NDT grid structure-->
+      <param name="ndt_resolution" value="1.0" />   <!--Resolution of NDT grid structure-->
       <param name="ndt_num_threads" value="8" />     <!--比较重要的参数，设置ndt 线程数，可以多线程运行，提高速度 0-->
       <param name="ndt_nn_search_method" value="DIRECT7" />  <!--比kdtree 快-->
   </node>
@@ -76,7 +76,7 @@
     <!-- optimization params -->
     <!-- typical solvers: gn_var, gn_fix6_3, gn_var_cholmod, lm_var, lm_fix6_3, lm_var_cholmod, ... -->
     <param name="g2o_solver_type" value="lm_var_cholmod" />
-    <param name="g2o_solver_num_iterations" value="512" />
+    <param name="g2o_solver_num_iterations" value="1024" />
     <!-- keyframe registration params -->
     <param name="enable_gps" value="$(arg enable_gps)" />
     <param name="enable_imu_acceleration" value="$(arg enable_imu_acc)" />

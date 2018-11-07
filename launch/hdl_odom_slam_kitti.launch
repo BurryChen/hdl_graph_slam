@@ -43,12 +43,12 @@
   <!-- scan_matching_odometry_nodelet -->
   <node pkg="nodelet" type="nodelet" name="scan_matching_odometry_nodelet" args="load hdl_graph_slam/ScanMatchingOdometryNodelet $(arg nodelet_manager)">
   	  <param name="odom_frame_id" value="odom" />
-      <param name="keyframe_delta_trans" value="2.5" />       
-      <param name="keyframe_delta_angle" value="0.2" /> 
-      <param name="keyframe_delta_time" value="0.1" />        <!--当前帧选取作为关键帧的条件;以上三个参数取消，每10帧一个keyframe-->
+      <param name="keyframe_delta_trans" value="5.0" />       <!--m-->
+      <param name="keyframe_delta_angle" value="0.17" />      <!--rad-->
+      <param name="keyframe_delta_time" value="1.0" />        <!--s,当前帧选取作为关键帧的条件-->
       <param name="transform_thresholding" value="true" />
-      <param name="max_acceptable_trans" value="5.0" />    <!--初值（上一scan相对keyframe的转换）的逆×当前scan相对keyframe的转换=相邻scan的变换,，超出就采用初值-->
-      <param name="max_acceptable_angle" value="5.0" />    <!--相邻scan的变换,，超出就采用初值，二个条件或的关系-->
+      <param name="max_acceptable_trans" value="3.0" />      <!--threshold for delta  between current scan and last scan,3m/0.1s=108km/h-->
+      <param name="max_acceptable_angle" value="0.157" />    <!--rad per 0.1s,10s转弯90度-->
       <param name="downsample_method" value="NONE" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE) prefiltering已有downsample，参数重复-->
       <param name="downsample_resolution" value="0.1" />
       <!-- ICP, GICP, NDT, GICP_OMP, or NDT_OMP(recommended) -->  <!--连接点搜索速度： DIRECT1>DIRECT7>KDTREE略>NONE,fitness精度：DIRECT1<DIRECT7<KDTREE=NONE.DIRECT-direct neighbor checking-->

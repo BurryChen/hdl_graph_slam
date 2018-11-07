@@ -126,7 +126,7 @@ private:
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
 
-    Eigen::Matrix4f pose = matching(cloud_msg->header.stamp, cloud);//base系在odom系下的变换（odom=第一帧keyframe的base）
+    Eigen::Matrix4f pose = matchingTest3(cloud_msg->header.stamp, cloud);//base系在odom系下的变换（odom=第一帧keyframe的base）
     publish_odometry(cloud_msg->header.stamp, cloud_msg->header.frame_id, pose);
 
     // In offline estimation, point clouds until the published time will be supplied
@@ -238,11 +238,12 @@ private:
 
     /**
    * @brief estimate the relative pose between an input cloud and the first keyframe cloud (odometry)
+   *        matching between current scan and last scan
    * @param stamp  the timestamp of the input cloud
    * @param cloud  the input cloud
    * @return the relative pose between the input cloud and the first keyframe cloud (odometry)
    */
-  Eigen::Matrix4f matching(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+  Eigen::Matrix4f matchingTest2(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
     if(!lastframe) { 
       lastframe_pose.setIdentity();
       lastframe= downsample(cloud);
@@ -313,6 +314,94 @@ private:
     <<"--dx: "<<dx<<"--da: "<<da<<std::endl;
     last_t=t2;
     
+    return odom;
+  }
+  
+    /**
+   * @brief estimate the relative pose between an input cloud and a first keyframe cloud
+   *        matching between current scan and keyframe selected by keyframe_delta_trans/angle/time
+   * @param stamp  the timestamp of the input cloud
+   * @param cloud  the input cloud
+   * @return the relative pose between the input cloud and the first keyframe cloud
+   */
+  Eigen::Matrix4f matchingTest3(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+    if(!keyframe) {
+      prev_trans.setIdentity();
+      guess_trans.setIdentity();
+      keyframe_pose.setIdentity();
+      keyframe_stamp = stamp;
+      keyframe = downsample(cloud);
+      registration->setInputTarget(keyframe);
+      last_t = ros::WallTime::now();
+      return Eigen::Matrix4f::Identity();
+    }
+
+    auto filtered = downsample(cloud);
+    //std::cout<<" filtered size:"<<filtered->size()<<std::endl;
+    registration->setInputSource(filtered);
+
+    pcl::PointCloud<PointT>::Ptr aligned(new pcl::PointCloud<PointT>());   
+    registration->align(*aligned, guess_trans);//初值
+
+    if(!registration->hasConverged()) {
+      NODELET_INFO_STREAM("scan matching has not converged!!");
+      NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
+      return keyframe_pose * guess_trans;
+    }
+
+    Eigen::Matrix4f trans = registration->getFinalTransformation();//当前scan相对keyframe的转换
+    Eigen::Matrix4f odom = keyframe_pose * trans;//前一帧的pose*相邻scan转换
+    
+    //wite odom pose
+    Eigen::Isometry3d tf_velo2odom(odom.cast<double>());
+    Eigen::Isometry3d pose=tf_velo2cam*tf_velo2odom*tf_velo2cam.inverse();   
+    auto data=pose.matrix();
+    //std::cout<<"pose=\n"<<pose.matrix()<<std::endl;
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	    data(0,0),data(0,1),data(0,2),data(0,3),
+	    data(1,0),data(1,1),data(1,2),data(1,3),
+	    data(2,0),data(2,1),data(2,2),data(2,3));  
+
+    //delta between current scan and last scan
+    Eigen::Matrix4f delta_s2s = prev_trans.inverse() * trans;//上一scan相对keyframe的转换×当前scan相对keyframe的转换=相邻scan的变换
+    double dx_s2s = delta_s2s.block<3, 1>(0, 3).norm();
+    double da_s2s = std::acos(Eigen::Quaternionf(delta_s2s.block<3, 3>(0, 0)).w());
+    //delta between current scan and keyframe
+    double dx_s2k = trans.block<3, 1>(0, 3).norm();
+    double da_s2k = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
+    double dt_s2k = (stamp - keyframe_stamp).toSec();
+    
+    //screet print 
+    auto t2 = ros::WallTime::now();
+    std::cout <<++seq<<" "<< stamp<<"/"<<keyframe_stamp << "--t: " << (t2 - last_t).toSec() 
+    <<"--fitness: " << registration->getFitnessScore() 
+    <<"--dx_s2s: "<<dx_s2s<<"--da_s2s: "<<da_s2s
+    <<"--dx_s2k: "<<dx_s2k<<"--da_s2k: "<<da_s2k<<"--dt_s2k: "<<dt_s2k<<std::endl;
+    last_t=t2;
+    
+    if(transform_thresholding&&(dx_s2s > max_acceptable_trans || da_s2s > max_acceptable_angle)) {
+      NODELET_INFO_STREAM("too large transform!!  " << dx_s2s << "[m] " << da_s2s << "[rad]");
+      NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
+      return keyframe_pose * guess_trans;
+    }
+
+    auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
+    keyframe_broadcaster.sendTransform(keyframe_trans);
+
+    if(dx_s2k > keyframe_delta_trans || da_s2k > keyframe_delta_angle || dt_s2k > keyframe_delta_time) {
+      keyframe = filtered;
+      registration->setInputTarget(keyframe);
+
+      keyframe_pose = odom;
+      keyframe_stamp = stamp;
+      prev_trans.setIdentity();
+    }
+    else
+    {
+      prev_trans = trans;       //用于计算delta_s2s
+    }       
+    guess_trans=prev_trans*delta_s2s;  //下一次align的估计初值
+        
     return odom;
   }
   
@@ -387,6 +476,7 @@ private:
   int seq;
   double ndt_resolution;
   ros::WallTime last_t;
+  Eigen::Matrix4f guess_trans;               //init guess for mathing
 };
 
 }
