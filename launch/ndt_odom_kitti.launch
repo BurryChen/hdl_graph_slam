@@ -9,6 +9,7 @@
   <arg name="enable_gps" default="false" />
   <arg name="enable_imu_acc" default="false" />
   <arg name="enable_imu_ori" default="false" />
+  <!--<arg name="odom_file" value="/home/whu/data/hdl_graph/KITTI_0X_odom.txt" /-->
 
   <!-- transformation between lidar and base_link 
   //velodyne2base of KITTI
@@ -42,11 +43,14 @@
 
   <!-- scan_matching_odometry_nodelet -->
   <node pkg="nodelet" type="nodelet" name="scan_matching_odometry_nodelet" args="load hdl_graph_slam/ScanMatchingOdometryNodelet $(arg nodelet_manager)">
-  	  <param name="odom_frame_id" value="odom" />
+      <param name="odom_frame_id" value="odom" />     
+      <param name="odom_file" value="$(arg odom_file)" />     <!--odom file-->
       <param name="keyframe_delta_trans" value="5.0" />       <!--m-->
       <param name="keyframe_delta_angle" value="0.17" />      <!--rad 10°-->
       <param name="keyframe_delta_time" value="1.0" />        <!--s,当前帧选取作为关键帧的条件-->
-      <param name="submap_delta_frame" value="5" />         <!--submap采样间隔 -->
+      <param name="windowmap_trans" value="5.0" />         <!--m 无限大9999时，即不依赖该参数-->
+      <param name="windowmap_angle" value="0.17" />        <!--rad 10° 无限大9999时，即不依赖该参数-->
+      <param name="windowmap_frame" value="10" />          <!--submap consist of previous n neighbor scans -->
       <param name="transform_thresholding" value="true" />
       <param name="max_acceptable_trans" value="3.0" />      <!--threshold for delta  between current scan and last scan,3m/0.1s=108km/h-->
       <param name="max_acceptable_angle" value="0.157" />    <!--rad per 0.1s,10s转弯90度-->

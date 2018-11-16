@@ -249,3 +249,7 @@ OMP,OpenMP
 An Application Program Interface (API) that may be used to explicitly direct multi-threaded, shared memory parallelism.
 ## dump all data to the current directory
 rosservice call /hdl_graph_slam/dump "destination: '/home/whu/data/hdl_graph/kitti_mapping/dump' "
+
+## -----------------------------------------2018.11.16
+## auto-processing shell to write odom file and evolate
+'/home/whu/slam_ws/src/hdl_graph_slam/scripts/ndt_odom_kitti.sh'  '/home/whu/data/ndt_odom_KITTI/KITTI_odom_ndt_xx' 

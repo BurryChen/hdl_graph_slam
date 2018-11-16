@@ -51,13 +51,17 @@ private:
   void initialize_params() {
     auto& pnh = private_nh;
     odom_frame_id = pnh.param<std::string>("odom_frame_id", "odom");
+    odom_file = pnh.param<std::string>("odom_file", "/home/whu/data/hdl_graph/KITTI_0X_odom.txt");
 
     // The minimum tranlational distance and rotation angle between keyframes.
     // If this value is zero, frames are always compared with the previous frame
     keyframe_delta_trans = pnh.param<double>("keyframe_delta_trans", 0.25);
     keyframe_delta_angle = pnh.param<double>("keyframe_delta_angle", 0.15);
     keyframe_delta_time = pnh.param<double>("keyframe_delta_time", 1.0);
-    submap_delta_frame = pnh.param<double>("submap_delta_frame", 5);
+    
+    windowmap_trans = pnh.param<double>("windowmap_trans", 5.0);
+    windowmap_angle = pnh.param<double>("windowmap_angle", 0.17);
+    windowmap_frame = pnh.param<double>("windowmap_frame", 10);
 
     // Registration validation by thresholding
     transform_thresholding = pnh.param<bool>("transform_thresholding", false);
@@ -91,7 +95,7 @@ private:
     ndt_resolution = pnh.param<double>("ndt_resolution", 0.5);
     
     //pose file with KITTI calibration tf_cal
-    fp = fopen("/home/whu/data/hdl_graph/KITTI_0X_odom.txt","w");
+    fp = fopen(odom_file.c_str(),"w");
     //世界坐标系map,以第一帧velo为基准建立，而kitti ground truth 是以第一帧camera为世界坐标系的velo pose，需要世界系calibration参数
     Eigen::Matrix4d mat;
     mat<<      
@@ -108,10 +112,6 @@ private:
 	   R[0][0],R[0][1],R[0][2],T[0],
 	   R[1][0],R[1][1],R[1][2],T[1],
 	   R[2][0],R[2][1],R[2][2],T[2]);
-    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
-	   R[0][0],R[0][1],R[0][2],T[0],
-	   R[1][0],R[1][1],R[1][2],T[1],
-	   R[2][0],R[2][1],R[2][2],T[2]);    
     seq=0;
   }
 
@@ -157,6 +157,24 @@ private:
     downsample_filter->filter(*filtered);
 
     return filtered;
+  }
+  
+    /**
+   * @brief undistort a point cloud
+   * @param cloud  input cloud
+   * @return undistorted point cloud
+   */
+  pcl::PointCloud<PointT>::ConstPtr 
+  undistort(const pcl::PointCloud<PointT>::ConstPtr& cloud) const {
+    if(!downsample_filter) {
+      return cloud;
+    }
+
+    pcl::PointCloud<PointT>::Ptr undistorted(new pcl::PointCloud<PointT>());
+    downsample_filter->setInputCloud(cloud);
+    downsample_filter->filter(*undistorted);
+
+    return undistorted;
   }
 
   /**
@@ -408,12 +426,12 @@ private:
   
    /**
    * @brief estimate the relative pose between an input cloud and the first keyframe cloud (odometry)
-   *        matching between current scan and mobile submap including n scans
+   *        matching between current scan and mobile window map including n scans
    * @param stamp  the timestamp of the input cloud
    * @param cloud  the input cloud
    * @return the relative pose between the input cloud and the first keyframe cloud (odometry)
    */
-  Eigen::Matrix4f matching_scan2map(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+  Eigen::Matrix4f matching_scan2windowmap(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
     if(!keyframe) {
       prev_trans.setIdentity();
       guess_trans.setIdentity();
@@ -424,7 +442,8 @@ private:
       last_t = ros::WallTime::now();
       
       scan_queue.push_back(keyframe);
-      submap+=*keyframe;
+      odom_queue.push_back(prev_trans);
+      windowmap+=*keyframe;
       return Eigen::Matrix4f::Identity();
     }
 
@@ -464,31 +483,35 @@ private:
     double da_s2k = std::acos(Eigen::Quaternionf(delta_s2k.block<3, 3>(0, 0)).w());
     double dt_s2k = (stamp - keyframe_stamp).toSec();
     
-    //screet print 
-    auto t2 = ros::WallTime::now();
-    std::cout <<++seq<<" "<< stamp<<"/"<<keyframe_stamp << "--t: " << (t2 - last_t).toSec() 
-    <<"--fitness: " << registration->getFitnessScore() 
-    <<"--dx_s2s: "<<dx_s2s<<"--da_s2s: "<<da_s2s
-    <<"--dx_s2k: "<<dx_s2k<<"--da_s2k: "<<da_s2k<<"--dt_s2k: "<<dt_s2k<<std::endl;
-    last_t=t2;
-    
     if(transform_thresholding&&(dx_s2s > max_acceptable_trans || da_s2s > max_acceptable_angle)) {
       NODELET_INFO_STREAM("too large transform!!  " << dx_s2s << "[m] " << da_s2s << "[rad]");
       NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
       return  guess_trans;
     }
 
-    // mobile submap including 5 scans as target pc
+    // mobile windowmap including n scans as target pc
     pcl::PointCloud<PointT>::Ptr transformed(new pcl::PointCloud<PointT>());
     pcl::transformPointCloud (*filtered, *transformed, trans);  //转到odom系下，第二个参数不能为常量
-    submap+=*transformed;
+    windowmap+=*transformed;
     scan_queue.push_back(transformed);
-    while(scan_queue.size()>submap_delta_frame)
+    odom_queue.push_back(odom);
+    
+    //delta between current scan and keyframe
+    Eigen::Matrix4f delta_wp=odom_queue[0].inverse() * odom;
+    double dx_wp = delta_wp.block<3, 1>(0, 3).norm();
+    double da_wp = std::acos(Eigen::Quaternionf(delta_wp.block<3, 3>(0, 0)).w());
+    int df_wp=scan_queue.size();
+    while(dx_wp > windowmap_trans || da_wp > windowmap_angle || df_wp>windowmap_frame)
     {
-      submap.erase(submap.begin(),submap.begin()+(scan_queue.front())->size());
-      scan_queue.pop_front();     
+      windowmap.erase(windowmap.begin(),windowmap.begin()+(scan_queue.front())->size());
+      scan_queue.pop_front();
+      odom_queue.pop_front();
+      delta_wp=odom_queue[0].inverse() * odom;
+      dx_wp = delta_wp.block<3, 1>(0, 3).norm();
+      da_wp = std::acos(Eigen::Quaternionf(delta_wp.block<3, 3>(0, 0)).w());
+      df_wp=scan_queue.size();
     }
-    registration->setInputTarget(submap.makeShared());
+    registration->setInputTarget(windowmap.makeShared());
  
     prev_trans = trans;       //用于计算delta_s2s  
     guess_trans=prev_trans*delta_s2s;  //下一次align的估计初值
@@ -502,6 +525,15 @@ private:
       keyframe_stamp = stamp;    
       //registration->setInputTarget(transformed);
     }
+          
+    //screet print 
+    auto t2 = ros::WallTime::now();
+    std::cout <<++seq<<" "<< stamp<<"/"<<keyframe_stamp << "--t: " << (t2 - last_t).toSec() 
+    <<"--fitness: " << registration->getFitnessScore() 
+    <<"--dx_s2s: "<<dx_s2s<<"--da_s2s: "<<da_s2s
+    //<<"--dx_s2k: "<<dx_s2k<<"--da_s2k: "<<da_s2k<<"--dt_s2k: "<<dt_s2k<<std::endl;
+    <<"--dx_wp: "<<dx_wp<<"--da_wp: "<<da_wp<<"--df_wp: "<<df_wp<<std::endl;
+    last_t=t2;
     
     return odom;
   }
@@ -577,10 +609,15 @@ private:
   int seq;
   double ndt_resolution;
   ros::WallTime last_t;
-  Eigen::Matrix4f guess_trans;               //init guess for mathing
-  pcl::PointCloud<PointT> submap;            // submap point cloud
+  Eigen::Matrix4f guess_trans;                  //init guess for mathing
+  pcl::PointCloud<PointT> windowmap;            // windowmap point cloud
   std::deque<pcl::PointCloud<PointT>::ConstPtr> scan_queue;
-  int submap_delta_frame;            
+  std::deque<Eigen::Matrix4f> odom_queue; 
+  double windowmap_trans;
+  double windowmap_angle;
+  int windowmap_frame; 
+  
+  std::string odom_file;
 
 };
 
