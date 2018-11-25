@@ -54,7 +54,7 @@
       <param name="transform_thresholding" value="true" />
       <param name="max_acceptable_trans" value="3.0" />      <!--threshold for delta  between current scan and last scan,3m/0.1s=108km/h-->
       <param name="max_acceptable_angle" value="0.157" />    <!--rad per 0.1s,10s转弯90度-->
-      <param name="downsample_method" value="VOXELGRID" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE) prefiltering已有downsample，参数重复-->
+      <param name="downsample_method" value="NONE" />      <!--(VOXELGRID, APPROX_VOXELGRID, NONE) prefiltering已有downsample，参数重复-->
       <param name="downsample_resolution" value="0.1" />
       <!-- ICP, GICP, NDT, GICP_OMP, or NDT_OMP(recommended) -->  <!--连接点搜索速度： DIRECT1>DIRECT7>KDTREE略>NONE,fitness精度：DIRECT1<DIRECT7<KDTREE=NONE.DIRECT-direct neighbor checking-->
       <param name="registration_method" value="NDT_OMP" />
