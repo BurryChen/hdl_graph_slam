@@ -23,6 +23,7 @@
 #include <hdl_graph_slam/registrations.hpp>
 
 #include <pcl/io/ply_io.h>
+//#include <ndt_registration/ndt_matcher_d2d.h>
 
 
 namespace hdl_graph_slam {
@@ -201,7 +202,7 @@ private:
     float oriStart=-M_PI;
     float oriEnd=M_PI;
     for (int i = 0; i < cloudSize; i++) {
-      pcl::PointXYZI point = cloud->points[i];
+      PointT point = cloud->points[i];
       
       // skip NaN and INF valued points
       if (!pcl_isfinite(point.x) ||
@@ -219,7 +220,7 @@ private:
       ori=oriEnd-ori;
       // calculate relative scan scale/time based on point orientation    
       double t = scale*ori/ (2 * M_PI);
-      point.intensity=t;   
+      //point.intensity=t;   
       //interpolate translation and rotation by scaleTime
       Eigen::Vector3d translation_t2End = t*(delta_S2E.block<3, 1>(0, 3));
       Eigen::Quaterniond rotation_t2End;
@@ -351,7 +352,7 @@ private:
 
     double dx = trans.block<3, 1>(0, 3).norm();
     double da = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
-    if(dx > max_acceptable_trans || da > max_acceptable_angle||registration->getFitnessScore()>ndt_resolution) {
+    if(dx > max_acceptable_trans || da > max_acceptable_angle) {
       trans=prev_trans;
       NODELET_INFO_STREAM("too large transform or gitness!! trans=prev_trans");
     }
@@ -461,11 +462,11 @@ private:
     <<"--dx_s2k: "<<dx_s2k<<"--da_s2k: "<<da_s2k<<"--dt_s2k: "<<dt_s2k<<std::endl;
     last_t=t2;
     
-    if(transform_thresholding&&(dx_s2s > max_acceptable_trans || da_s2s > max_acceptable_angle)) {
+    /*if(transform_thresholding&&(dx_s2s > max_acceptable_trans || da_s2s > max_acceptable_angle)) {
       NODELET_INFO_STREAM("too large transform!!  " << dx_s2s << "[m] " << da_s2s << "[rad]");
       NODELET_INFO_STREAM("ignore this frame(" << stamp << ")");
       return keyframe_pose * guess_trans;
-    }
+    }*/
 
     auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
     keyframe_broadcaster.sendTransform(keyframe_trans);
@@ -704,6 +705,84 @@ private:
     
     return odom;
   } 
+  
+     /**
+   * @brief estimate the relative pose between an input cloud and a first keyframe cloud with NDT_D2D
+   *        matching between current scan and selected keyframe by keyframe_delta_trans/angle/time with more accurate init
+   * @param stamp  the timestamp of the input cloud
+   * @param cloud  the input cloud
+   * @return the relative pose between the input cloud and the first keyframe cloud
+   */
+  /*Eigen::Matrix4f matching_scan2key_d2d(const ros::Time& stamp, const pcl::PointCloud<PointT>::ConstPtr& cloud) {
+    if(!keyframe) {
+      prev_trans.setIdentity();
+      guess_trans.setIdentity();
+      keyframe_pose.setIdentity();
+      keyframe_stamp = stamp;
+      keyframe = downsample(cloud);
+      last_t = ros::WallTime::now();
+      return Eigen::Matrix4f::Identity();
+    }   
+    // NDT_register
+    double __res[] ={0.5, 1, 2, 4};
+    std::vector<double> resolutions (__res, __res+sizeof(__res)/sizeof(double));
+    lslgeneric::NDTMatcherD2D matcherD2D(false, false, resolutions);
+    //lslgeneric::NDTMatcherP2D matcherP2D(resolutions);
+    pcl::PointCloud<pcl::PointXYZ> target,source;
+    pcl::copyPointCloud( *keyframe,target);
+    pcl::copyPointCloud(*cloud,source);
+    Eigen::Transform<double,3,Eigen::Affine,Eigen::ColMajor> Tout;
+    Tout.matrix()=guess_trans.cast<double>();
+    bool ret = matcherD2D.match(target,source,Tout,true);
+    //bool ret = matcherP2D.match(target,source,Tout);
+    //std::cout<<ret<<"Transform_d2d: \n"<<Tout.matrix()<<std::endl;
+
+    Eigen::Matrix4f trans=Tout.matrix().cast<float>();
+    Eigen::Matrix4f odom = keyframe_pose * trans;//前一帧的pose*相邻scan转换
+    
+    //wite odom pose
+    Eigen::Isometry3d tf_velo2odom(odom.cast<double>());
+    Eigen::Isometry3d pose=tf_velo2cam*tf_velo2odom*tf_velo2cam.inverse();   
+    auto data=pose.matrix();
+    //std::cout<<"pose=\n"<<pose.matrix()<<std::endl;
+    fprintf(fp,"%le %le %le %le %le %le %le %le %le %le %le %le\n",
+	    data(0,0),data(0,1),data(0,2),data(0,3),
+	    data(1,0),data(1,1),data(1,2),data(1,3),
+	    data(2,0),data(2,1),data(2,2),data(2,3));  
+
+    //delta between current scan and last scan
+    Eigen::Matrix4f delta_s2s = prev_trans.inverse() * trans;//上一scan相对keyframe的转换×当前scan相对keyframe的转换=相邻scan的变换
+    double dx_s2s = delta_s2s.block<3, 1>(0, 3).norm();
+    double da_s2s = std::acos(Eigen::Quaternionf(delta_s2s.block<3, 3>(0, 0)).w());
+    //delta between current scan and keyframe
+    double dx_s2k = trans.block<3, 1>(0, 3).norm();
+    double da_s2k = std::acos(Eigen::Quaternionf(trans.block<3, 3>(0, 0)).w());
+    double dt_s2k = (stamp - keyframe_stamp).toSec();
+    
+    //screet print 
+    auto t2 = ros::WallTime::now();
+    std::cout <<++seq<<" "<< stamp<<"/"<<keyframe_stamp << "--t: " << (t2 - last_t).toSec() 
+    <<"--dx_s2s: "<<dx_s2s<<"--da_s2s: "<<da_s2s
+    <<"--dx_s2k: "<<dx_s2k<<"--da_s2k: "<<da_s2k<<"--dt_s2k: "<<dt_s2k<<std::endl;
+    last_t=t2;  
+
+    auto keyframe_trans = matrix2transform(stamp, keyframe_pose, odom_frame_id, "keyframe");
+    keyframe_broadcaster.sendTransform(keyframe_trans);
+
+    if(dx_s2k > keyframe_delta_trans || da_s2k > keyframe_delta_angle || dt_s2k > keyframe_delta_time) {
+      keyframe = cloud;
+      keyframe_pose = odom;
+      keyframe_stamp = stamp;
+      prev_trans.setIdentity();
+    }
+    else
+    {
+      prev_trans = trans;       //用于计算delta_s2s
+    }       
+    guess_trans=prev_trans*delta_s2s;  //下一次align的估计初值
+        
+    return odom;
+  }*/
   
   /**
    * @brief publish odometry

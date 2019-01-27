@@ -8,16 +8,21 @@ durations=(471 115 484 83 29 288 115 115 423 165 125)
 # 2.SLAM, write odom file
 
 for seq in 00 01 02 03 04 05 06 07 08 09 10
+#for seq in 04
 do
 
 file=${1}/data/KITTI_${seq}_odom.txt
 echo $seq $file
-gnome-terminal -x bash -c "echo $seq;roslaunch hdl_graph_slam ndt_odom_kitti.launch odom_file:=$file &sleep 10s;rosbag play --clock /home/whu/data/loam_KITTI/velobag/velo_${seq}.bag -r 0.25;echo $seq over&&sleep 10s;exit"
+gnome-terminal -x bash -c "echo $seq;roslaunch hdl_graph_slam ndt_odom_kitti.launch odom_file:=$file &sleep 10s;rosbag play --clock /home/whu/data/loam_KITTI/velobag/velo_${seq}.bag -r 0.75;echo $seq over&&sleep 10s;exit"
 i=10#$seq
-time=`expr 60 + ${durations[i]} \* 4`
+time=`expr 60 + ${durations[i]} \* 4 / 3`
 echo $time s
 sleep $time
 wait
+
+file_gt=/home/whu/data/loam_KITTI/gt/${seq}.txt
+file_pdf=${1}/data/KITTI_${seq}_odom.pdf
+evo_traj kitti $file      --plot_mode=xz  --ref=$file_gt  --save_plot $file_pdf
 
 done 
 

@@ -27,8 +27,8 @@
     <param name="base_link_frame" value="base_link" />
     <!-- distance filter --> <!--距离滤波-->
     <param name="use_distance_filter" value="true" />
-    <param name="distance_near_thresh" value="0.5" />
-    <param name="distance_far_thresh" value="100.0" />
+    <param name="distance_near_thresh" value="2.0" />
+    <param name="distance_far_thresh" value="50.0" />
     <!-- NONE, VOXELGRID, or APPROX_VOXELGRID -->
     <!--采取不同下采样的方法,VOXELGRID重心，APPROX_VOXELGRID几何中心 -->
     <param name="downsample_method" value="VOXELGRID" /> 
@@ -60,7 +60,7 @@
       <param name="registration_method" value="NDT_OMP" />
       <param name="ndt_resolution" value="1.0" />   <!--Resolution of NDT grid structure-->
       <param name="ndt_num_threads" value="8" />     <!--比较重要的参数，设置ndt 线程数，可以多线程运行，提高速度 0-->
-      <param name="ndt_nn_search_method" value="DIRECT7" />  <!--比kdtree 快-->
+      <param name="ndt_nn_search_method" value="DIRECT1" />  <!--DIRECT7 快,因初值比较准，robust并不差-->
   </node>
 
 </launch>
