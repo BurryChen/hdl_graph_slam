@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
   nmea_msgs
   sensor_msgs
   message_generation
+  interactive_markers
   ndt_omp
   Sophus
 )
@@ -62,7 +63,7 @@ generate_messages(DEPENDENCIES std_msgs)
 ###################################
 catkin_package(
   INCLUDE_DIRS include
-#  LIBRARIES hdl_scan_matching_odometry
+  LIBRARIES hdl_graph_slam_nodelet
 #  CATKIN_DEPENDS pcl_ros roscpp sensor_msgs
 #  DEPENDS system_lib
 )
@@ -72,6 +73,7 @@ catkin_package(
 ###########
 include_directories(include)
 include_directories(
+  ${PCL_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
 
@@ -108,6 +110,7 @@ add_library(hdl_graph_slam_nodelet
   src/hdl_graph_slam/map_cloud_generator.cpp
   src/hdl_graph_slam/registrations.cpp
   src/hdl_graph_slam/information_matrix_calculator.cpp
+  src/g2o/robust_kernel_io.cpp
 )
 target_link_libraries(hdl_graph_slam_nodelet
   ${catkin_LIBRARIES}
@@ -122,3 +125,4 @@ target_link_libraries(hdl_graph_slam_nodelet
   ${G2O_TYPES_SLAM3D_ADDONS}
 )
 add_dependencies(hdl_graph_slam_nodelet ${PROJECT_NAME}_gencpp)
+

@@ -14,6 +14,7 @@
 
 #include <pcl/common/transforms.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/search/impl/search.hpp>
 #include <pcl/filters/impl/plane_clipper3D.hpp>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/sample_consensus/ransac.h>
@@ -57,6 +58,8 @@ private:
     floor_normal_thresh = private_nh.param<double>("floor_normal_thresh", 10.0);   // verticality check thresold for the detected floor plane [deg]
     use_normal_filtering = private_nh.param<bool>("use_normal_filtering", true);   // if true, points with "non-"vertical normals will be filtered before RANSAC
     normal_filter_thresh = private_nh.param<double>("normal_filter_thresh", 20.0); // "non-"verticality check threshold [deg]
+
+    points_topic = private_nh.param<std::string>("points_topic", "/velodyne_points");
   }
 
   /**
@@ -88,7 +91,7 @@ private:
 
     // for offline estimation
     std_msgs::HeaderPtr read_until(new std_msgs::Header());
-    read_until->frame_id = "/velodyne_points";
+    read_until->frame_id = points_topic;
     read_until->stamp = cloud_msg->header.stamp + ros::Duration(1, 0);
     read_until_pub.publish(read_until);
 
@@ -243,6 +246,7 @@ private:
   ros::Publisher floor_points_pub;
   ros::Publisher floor_filtered_pub;
 
+  std::string points_topic;
   ros::Publisher read_until_pub;
 
   // floor detection parameters

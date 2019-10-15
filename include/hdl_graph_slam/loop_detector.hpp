@@ -1,6 +1,7 @@
 #ifndef LOOP_DETECTOR_HPP
 #define LOOP_DETECTOR_HPP
 
+#include <boost/format.hpp>
 #include <hdl_graph_slam/keyframe.hpp>
 #include <hdl_graph_slam/registrations.hpp>
 #include <hdl_graph_slam/graph_slam.hpp>
@@ -42,6 +43,7 @@ public:
     accum_distance_thresh = pnh.param<double>("accum_distance_thresh", 8.0);
     distance_from_last_edge_thresh = pnh.param<double>("min_edge_interval", 5.0);
 
+    fitness_score_max_range = pnh.param<double>("fitness_score_max_range", std::numeric_limits<double>::max());
     fitness_score_thresh = pnh.param<double>("fitness_score_thresh", 0.5);
 
     registration = select_registration_method(pnh);
@@ -139,7 +141,7 @@ private:
       registration->align(*aligned, guess);
       std::cout << "." << std::flush;
 
-      double score = registration->getFitnessScore();
+      double score = registration->getFitnessScore(fitness_score_max_range);
       if(!registration->hasConverged() || score > best_score) {
         continue;
       }
@@ -171,6 +173,7 @@ private:
   double accum_distance_thresh;           // traveled distance between ...
   double distance_from_last_edge_thresh;  // a new loop edge must far from the last one at least this distance
 
+  double fitness_score_max_range;         // maximum allowable distance between corresponding points
   double fitness_score_thresh;            // threshold for scan matching
 
   double last_edge_accum_distance;

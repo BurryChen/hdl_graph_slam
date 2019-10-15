@@ -4,7 +4,7 @@
 #include <memory>
 #include <ros/time.h>
 
-#include <g2o/core/sparse_optimizer.h>
+#include <g2o/core/hyper_graph.h>
 
 namespace g2o {
   class VertexSE3;
@@ -17,6 +17,11 @@ namespace g2o {
   class EdgeSE3PriorXYZ;
   class EdgeSE3PriorVec;
   class EdgeSE3PriorQuat;
+  class EdgePlane;
+  class EdgePlaneParallel;
+  class EdgePlanePerpendicular;
+  class EdgePlanePriorNormal;
+  class EdgePlanePriorDistance;
   class RobustKernelFactory;
 }
 
@@ -25,7 +30,12 @@ namespace hdl_graph_slam {
 class GraphSLAM {
 public:
   GraphSLAM(const std::string& solver_type = "lm_var");
-  ~GraphSLAM();
+  virtual ~GraphSLAM();
+
+  int num_vertices() const;
+  int num_edges() const;
+
+  void set_solver(const std::string& solver_type);
 
   /**
    * @brief add a SE3 node to the graph
@@ -85,6 +95,10 @@ public:
    * @param information_matrix
    * @return
    */
+  g2o::EdgePlanePriorNormal* add_plane_normal_prior_edge(g2o::VertexPlane* v, const Eigen::Vector3d& normal, const Eigen::MatrixXd& information_matrix);
+
+  g2o::EdgePlanePriorDistance* add_plane_distance_prior_edge(g2o::VertexPlane* v, double distance, const Eigen::MatrixXd& information_matrix);
+
   g2o::EdgeSE3PriorXY* add_se3_prior_xy_edge(g2o::VertexSE3* v_se3, const Eigen::Vector2d& xy, const Eigen::MatrixXd& information_matrix);
 
   g2o::EdgeSE3PriorXYZ* add_se3_prior_xyz_edge(g2o::VertexSE3* v_se3, const Eigen::Vector3d& xyz, const Eigen::MatrixXd& information_matrix);
@@ -93,22 +107,33 @@ public:
 
   g2o::EdgeSE3PriorVec* add_se3_prior_vec_edge(g2o::VertexSE3* v_se3, const Eigen::Vector3d& direction, const Eigen::Vector3d& measurement, const Eigen::MatrixXd& information_matrix);
 
-  void add_robust_kernel(g2o::OptimizableGraph::Edge* edge, const std::string& kernel_type, double kernel_size);
+  g2o::EdgePlane* add_plane_edge(g2o::VertexPlane* v_plane1, g2o::VertexPlane* v_plane2, const Eigen::Vector4d& measurement, const Eigen::Matrix4d& information);
+
+  g2o::EdgePlaneParallel* add_plane_parallel_edge(g2o::VertexPlane* v_plane1, g2o::VertexPlane* v_plane2, const Eigen::Vector3d& measurement, const Eigen::Matrix3d& information);
+
+  g2o::EdgePlanePerpendicular* add_plane_perpendicular_edge(g2o::VertexPlane* v_plane1, g2o::VertexPlane* v_plane2, const Eigen::Vector3d& measurement, const Eigen::MatrixXd& information);
+
+  void add_robust_kernel(g2o::HyperGraph::Edge* edge, const std::string& kernel_type, double kernel_size);
 
   /**
    * @brief perform graph optimization
    */
-  void optimize(int num_iterations);
+  int optimize(int num_iterations);
 
   /**
-   * @brief save the pose graph
+   * @brief save the pose graph to a file
    * @param filename  output filename
    */
   void save(const std::string& filename);
 
+  /**
+   * @brief load the pose graph from file
+   * @param filename  output filename
+   */
+  bool load(const std::string& filename);
 public:
   g2o::RobustKernelFactory* robust_kernel_factory;
-  std::unique_ptr<g2o::SparseOptimizer> graph;  // g2o graph
+  std::unique_ptr<g2o::HyperGraph> graph;  // g2o graph
 };
 
 }
